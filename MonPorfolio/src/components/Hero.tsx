@@ -34,7 +34,7 @@ export default function Hero({ preview = false }: { preview?: boolean }) {
 
   useEffect(() => {
     if (preview) return;
-    const handleMouse = (e) => {
+    const handleMouse = (e: MouseEvent) => {
       setMousePos({ 
         x: (e.clientX / window.innerWidth - 0.5) * 20,
         y: (e.clientY / window.innerHeight - 0.5) * 20
@@ -110,7 +110,7 @@ export default function Hero({ preview = false }: { preview?: boolean }) {
       </div>
       
       {/* Keyframes for floating animation */}
-      <style jsx>{`
+      <style>{`
         @keyframes float {
           0%, 100% {
             transform: translate(-50%, -50%) translateY(0px);

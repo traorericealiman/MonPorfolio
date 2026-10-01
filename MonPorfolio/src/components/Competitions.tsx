@@ -5,7 +5,7 @@ import { useContent } from '../lib/contentStore';
 
 export default function Competitions() {
   const { competitions } = useContent();
-  const scrollRef = useRef(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
 
@@ -16,7 +16,7 @@ export default function Competitions() {
     setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8);
   };
 
-  const scroll = (direction) => {
+  const scroll = (direction: 'left' | 'right') => {
     const el = scrollRef.current;
     if (!el) return;
     const cardWidth = el.querySelector('[data-card]')?.clientWidth || 300;
