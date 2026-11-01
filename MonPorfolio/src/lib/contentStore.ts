@@ -6,7 +6,7 @@ import {
   updateListItem as updateListItemApi,
   updateProfile as updateProfileApi,
 } from '../services';
-import type { ListResource, Profile, SiteContent } from '../types/content';
+import type { Competition, ListResource, Profile, SiteContent } from '../types/content';
 
 export type { Competition, Creation, ListResource, Profile, Project, SiteContent } from '../types/content';
 
@@ -29,6 +29,57 @@ export const DEFAULT_CONTENT: SiteContent = {
   creations: [],
   projects: [],
 };
+
+// --- Liens sûrs -----------------------------------------------------------------
+// Défense en profondeur : même si la base contenait un lien "javascript:...",
+// il ne doit jamais arriver dans un href.
+
+export function safeUrl(value: string | undefined): string {
+  const v = (value ?? '').trim();
+  return !v || v === '#' || /^\/(?!\/)/.test(v) || /^(https?:\/\/|mailto:)/i.test(v) ? v : '';
+}
+
+function sanitizeContent(data: Partial<SiteContent>): SiteContent {
+  const profile = { ...DEFAULT_CONTENT.profile, ...(data.profile || {}) };
+  return {
+    profile: {
+      ...profile,
+      github: safeUrl(profile.github),
+      linkedin: safeUrl(profile.linkedin),
+      facebook: safeUrl(profile.facebook),
+    },
+    competitions: data.competitions ?? [],
+    creations: data.creations ?? [],
+    projects: (data.projects ?? []).map((p) => ({ ...p, github: safeUrl(p.github) || '#', link: safeUrl(p.link) || '#' })),
+  };
+}
+
+// --- Ordre chronologique des compétitions -------------------------------------
+
+const addedAt = (c: Competition) => Number(c.id.split('-').pop()) || 0;
+
+/** Du plus récent au plus ancien ; sans date en dernier, puis par date d'ajout (la plus récente d'abord). */
+export function sortCompetitionsByDate(list: Competition[]): Competition[] {
+  return [...list].sort((a, b) => {
+    const da = a.date ?? '';
+    const db = b.date ?? '';
+    if (da !== db) {
+      if (!da) return 1;
+      if (!db) return -1;
+      return db.localeCompare(da);
+    }
+    return addedAt(b) - addedAt(a);
+  });
+}
+
+const MONTHS = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
+
+/** "2026-03" -> "mars 2026" */
+export function formatCompetitionDate(date?: string): string {
+  const [y, m] = (date ?? '').split('-');
+  if (!y) return '';
+  return m ? `${MONTHS[Number(m) - 1] ?? ''} ${y}`.trim() : y;
+}
 
 // --- Cache local + notification de changement --------------------------------
 // Le contenu est chargé une fois depuis l'API puis mis en cache en mémoire, afin
@@ -54,12 +105,7 @@ async function loadContent(): Promise<SiteContent> {
   if (fetchPromise) return fetchPromise;
   fetchPromise = fetchAllContent()
     .then((data) => {
-      cache = {
-        profile: { ...DEFAULT_CONTENT.profile, ...(data.profile || {}) },
-        competitions: data.competitions ?? [],
-        creations: data.creations ?? [],
-        projects: data.projects ?? [],
-      };
+      cache = sanitizeContent(data);
       hasLoaded = true;
       notifyChange();
       return cache;

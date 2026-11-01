@@ -1,5 +1,5 @@
 import { Plus, Trophy, Upload, ImageOff } from 'lucide-react';
-import { type Competition } from '../../lib/contentStore';
+import { type Competition, formatCompetitionDate } from '../../lib/contentStore';
 import { Field, TextInput, TextArea, PageHeader } from '../ui/Field';
 import { EditableCard } from '../ui/EditableCard';
 import { useEditableList } from '../useEditableList';
@@ -12,6 +12,7 @@ function emptyCompetition(): Competition {
     result: '1er prix',
     description: '',
     image: '',
+    date: new Date().toISOString().slice(0, 7),
   };
 }
 
@@ -30,7 +31,7 @@ export default function CompetitionsTab() {
     <div>
       <PageHeader
         title="Compétitions & Hackathons"
-        subtitle="Gère la liste affichée dans la section Palmarès du site."
+        subtitle="Gère la liste affichée dans la section Palmarès du site (triée par date, de la plus récente à la plus ancienne)."
         action={
           <button
             onClick={() => addItem(emptyCompetition)}
@@ -65,6 +66,9 @@ export default function CompetitionsTab() {
                     <h3 className="font-bold text-zinc-900 truncate">{comp.title || 'Sans titre'}</h3>
                     <span className="flex-shrink-0 text-[10px] font-bold uppercase tracking-wide bg-blue-500/10 text-blue-600 px-2 py-0.5 rounded-full">
                       {comp.result}
+                    </span>
+                    <span className="flex-shrink-0 text-xs text-zinc-400">
+                      {formatCompetitionDate(comp.date) || 'Date non renseignée'}
                     </span>
                   </div>
                   <p className="text-sm font-medium text-blue-600 mb-1">{comp.project}</p>
@@ -112,12 +116,21 @@ export default function CompetitionsTab() {
                   </div>
                 </div>
 
-                <Field label="Résultat (badge)">
-                  <TextInput
-                    value={comp.result}
-                    onChange={(e) => updateField(comp.id, { result: e.target.value })}
-                  />
-                </Field>
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <Field label="Résultat (badge)">
+                    <TextInput
+                      value={comp.result}
+                      onChange={(e) => updateField(comp.id, { result: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Date (mois et année)">
+                    <TextInput
+                      type="month"
+                      value={comp.date ?? ''}
+                      onChange={(e) => updateField(comp.id, { date: e.target.value })}
+                    />
+                  </Field>
+                </div>
 
                 <Field label="Description">
                   <TextArea

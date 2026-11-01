@@ -15,6 +15,8 @@ export interface Competition {
   result: string;
   description: string;
   image: string;
+  /** Mois de la compétition, "AAAA-MM" (vide si inconnu). */
+  date?: string;
 }
 
 export interface Creation {

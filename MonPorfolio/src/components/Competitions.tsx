@@ -1,10 +1,11 @@
 import { motion } from 'framer-motion';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { useContent } from '../lib/contentStore';
+import { formatCompetitionDate, sortCompetitionsByDate, useContent } from '../lib/contentStore';
 
 export default function Competitions() {
-  const { competitions } = useContent();
+  const content = useContent();
+  const competitions = useMemo(() => sortCompetitionsByDate(content.competitions), [content.competitions]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
@@ -94,10 +95,15 @@ export default function Competitions() {
                 />
               </div>
 
-              <div className="flex items-center mb-4">
+              <div className="flex items-center justify-between gap-2 mb-4">
                 <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wide bg-blue-500 text-white px-2.5 py-1 rounded-full whitespace-nowrap">
                   {comp.result}
                 </span>
+                {comp.date && (
+                  <span className="text-[10px] sm:text-xs font-medium text-zinc-400 whitespace-nowrap">
+                    {formatCompetitionDate(comp.date)}
+                  </span>
+                )}
               </div>
               <h3 className="font-bold text-zinc-900 text-sm sm:text-base mb-1 leading-snug">
                 {comp.title}

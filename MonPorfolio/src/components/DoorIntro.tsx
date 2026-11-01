@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
+  AnimatePresence,
   motion,
   useAnimationControls,
   useMotionValue,
@@ -24,7 +25,11 @@ const WORDS = [
   { t: 'Vision', x: 70, y: 66 },
 ];
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Durées de l'ouverture (ms) : la porte pivote, puis la caméra plonge dans l'embrasure.
+const DOOR_MS = 1100;
+const ZOOM_DELAY_MS = 350;
+const ZOOM_MS = 1700;
+const ZOOM_EASE = 'cubic-bezier(0.6, 0, 0.15, 1)';
 
 interface Props {
   /** Appelé quand la page principale doit être montée (sous l'intro). */
@@ -39,14 +44,14 @@ export default function DoorIntro({ onReveal, onDone }: Props) {
   const reduce = useReducedMotion();
 
   const door = useAnimationControls();
-  const scene = useAnimationControls();
+  const frame = useAnimationControls();
   const root = useAnimationControls();
   const ui = useAnimationControls();
   const glow = useAnimationControls();
   const sceneRef = useRef<HTMLDivElement>(null);
   const doorwayRef = useRef<HTMLDivElement>(null);
+  const zoomAnim = useRef<Animation | null>(null);
   const [k0, setK0] = useState(0.15);
-  const [ready, setReady] = useState(false);
   const [vw, setVw] = useState(() => document.documentElement.clientWidth);
   const [vh, setVh] = useState(() => window.innerHeight);
 
@@ -72,26 +77,34 @@ export default function DoorIntro({ onReveal, onDone }: Props) {
     };
   }, [mx, my]);
 
-  // Taille de la page miniature = largeur de l'embrasure / largeur de l'écran
-  useEffect(() => {
+  // Taille de la page miniature = largeur de l'embrasure / largeur de l'écran.
+  // offsetWidth ignore les transformations : la mesure est juste même pendant
+  // l'animation d'entrée de l'encadrement, donc la porte est cliquable tout de suite.
+  useLayoutEffect(() => {
     const measure = () => {
       const w = document.documentElement.clientWidth;
       setVw(w);
       setVh(window.innerHeight);
-      if (doorwayRef.current) setK0(doorwayRef.current.getBoundingClientRect().width / w);
+      if (doorwayRef.current) setK0(doorwayRef.current.offsetWidth / w);
     };
     measure();
-    // l'encadrement finit son animation d'entrée (échelle) avant qu'on mesure pour de bon
-    const t = setTimeout(() => {
-      measure();
-      setReady(true);
-    }, 1600);
     window.addEventListener('resize', measure);
-    return () => {
-      clearTimeout(t);
-      window.removeEventListener('resize', measure);
-    };
+    return () => window.removeEventListener('resize', measure);
   }, []);
+
+  useEffect(() => {
+    frame.start({ opacity: 1, y: 0, scale: 1, transition: { duration: 1.1, delay: 0.3, ease: [0.22, 1, 0.36, 1] } });
+  }, [frame]);
+
+  // Un second clic (ou Échap / Entrée / Espace) pendant l'ouverture saute directement à la fin.
+  useEffect(() => {
+    if (phase !== 'opening') return;
+    const skip = (e: KeyboardEvent) => {
+      if (['Escape', 'Enter', ' '].includes(e.key)) zoomAnim.current?.finish();
+    };
+    window.addEventListener('keydown', skip);
+    return () => window.removeEventListener('keydown', skip);
+  }, [phase]);
 
   const dust = useMemo(
     () =>
@@ -106,7 +119,10 @@ export default function DoorIntro({ onReveal, onDone }: Props) {
   );
 
   const open = async () => {
-    if (phase !== 'idle' || !ready) return;
+    if (phase === 'opening') {
+      zoomAnim.current?.finish();
+      return;
+    }
     setPhase('opening');
     setHover(false);
 
@@ -117,42 +133,42 @@ export default function DoorIntro({ onReveal, onDone }: Props) {
       return;
     }
 
-    ui.start({ opacity: 0, transition: { duration: 0.5, ease: 'easeInOut' } });
+    ui.start({ opacity: 0, transition: { duration: 0.4, ease: 'easeInOut' } });
+    // si on clique pendant l'entrée de l'encadrement, il se pose vite avant le zoom
+    frame.start({ opacity: 1, y: 0, scale: 1, transition: { duration: 0.3, ease: 'easeOut' } });
 
-    // Mesure : on vise le centre de l'embrasure, et on grossit jusqu'à ce que
-    // la page miniature remplisse exactement l'écran.
-    const sc = sceneRef.current!.getBoundingClientRect();
-    const dw = doorwayRef.current!.getBoundingClientRect();
-    const cx = dw.left + dw.width / 2;
-    const cy = dw.top + dw.height / 2;
-    scene.set({
-      originX: (cx - sc.left) / sc.width,
-      originY: (cy - sc.top) / sc.height,
-    });
-    const zoom = 1 / k0;
-    const dx = document.documentElement.clientWidth / 2 - cx;
-    const dy = window.innerHeight / 2 - cy;
+    // Mesure : l'embrasure est centrée dans la scène. On grossit autour de ce
+    // centre jusqu'à ce que la page miniature remplisse exactement l'écran.
+    const sceneEl = sceneRef.current!;
+    const sc = sceneEl.getBoundingClientRect();
+    const vwNow = document.documentElement.clientWidth;
+    const zoom = vwNow / doorwayRef.current!.offsetWidth;
+    const dx = vwNow / 2 - (sc.left + sc.width / 2);
+    const dy = window.innerHeight / 2 - (sc.top + sc.height / 2);
 
     // 1 — la porte s'ouvre et laisse voir le site à l'intérieur
     door.start({
       rotateY: -100,
       opacity: [1, 1, 0],
       transition: {
-        rotateY: { duration: 1.4, ease: [0.45, 0, 0.2, 1] },
-        opacity: { duration: 1.4, times: [0, 0.5, 1] },
+        rotateY: { duration: DOOR_MS / 1000, ease: [0.45, 0, 0.2, 1] },
+        opacity: { duration: DOOR_MS / 1000, times: [0, 0.5, 1] },
       },
     });
-
-    // 2 — la caméra entre dans l'embrasure, longue glissade qui s'adoucit à l'arrivée
-    await sleep(700);
     // la lueur du cadre s'éteint pendant le zoom (sinon elle bave sur les bords de l'écran)
-    glow.start({ opacity: 0, transition: { duration: 1.9, ease: 'easeIn' } });
-    await scene.start({
-      x: dx,
-      y: dy,
-      scale: zoom,
-      transition: { duration: 2.4, ease: [0.6, 0, 0.15, 1] },
-    });
+    glow.start({ opacity: 0, transition: { duration: 1.4, delay: ZOOM_DELAY_MS / 1000, ease: 'easeIn' } });
+
+    // 2 — la caméra entre dans l'embrasure. Animation Web native : elle tourne sur
+    // le GPU (compositeur), donc elle reste fluide même si React travaille en parallèle.
+    zoomAnim.current = sceneEl.animate(
+      [
+        { transform: 'translate3d(0, 0, 0) scale(1)' },
+        { transform: `translate3d(${dx}px, ${dy}px, 0) scale(${zoom})` },
+      ],
+      { duration: ZOOM_MS, delay: ZOOM_DELAY_MS, easing: ZOOM_EASE, fill: 'forwards' }
+    );
+    await zoomAnim.current.finished.catch(() => undefined);
+    door.stop();
 
     // 3 — la vraie page prend le relais, à l'identique
     onReveal();
@@ -165,6 +181,7 @@ export default function DoorIntro({ onReveal, onDone }: Props) {
     <motion.div
       animate={root}
       initial={{ opacity: 1 }}
+      onClick={phase === 'opening' ? () => zoomAnim.current?.finish() : undefined}
       className="fixed inset-0 z-[100] overflow-hidden bg-zinc-950 select-none"
     >
       {/* Fond identique au Hero */}
@@ -229,34 +246,40 @@ export default function DoorIntro({ onReveal, onDone }: Props) {
         className="absolute inset-0 flex items-center justify-center"
         style={{ paddingTop: 0, perspective: 1500 }}
       >
-        <motion.div
+        <div
           ref={sceneRef}
-          animate={scene}
-          initial={{ scale: 1 }}
           style={{ transformStyle: 'preserve-3d' }}
           className="relative"
         >
-          {/* Halo bleu */}
-          <motion.div
-            className="absolute -inset-20 rounded-full blur-3xl"
-            style={{ background: 'radial-gradient(circle, rgba(31,131,207,0.4), transparent 65%)' }}
-            animate={{ opacity: phase !== 'idle' ? 0 : hover ? 0.6 : [0.2, 0.35, 0.2] }}
-            transition={hover ? { duration: 0.4 } : { duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}
-          />
-
-          {/* Ombre/lumière au sol */}
-          <motion.div
-            className="absolute left-1/2 -bottom-6 h-10 w-[140%] -translate-x-1/2 rounded-[50%] blur-xl"
-            style={{ background: 'radial-gradient(ellipse, rgba(74,158,221,0.55), transparent 70%)' }}
-            animate={{ opacity: phase !== 'idle' ? 0 : hover ? 1 : 0.5 }}
-            transition={{ duration: 0.8 }}
-          />
+          {/* Halo bleu et lumière au sol : très flous, donc coûteux à agrandir.
+              On les retire avant le zoom plutôt que de les grossir 6×. */}
+          <AnimatePresence>
+            {phase === 'idle' && (
+              <motion.div
+                key="halo"
+                className="absolute -inset-20 rounded-full blur-3xl"
+                style={{ background: 'radial-gradient(circle, rgba(31,131,207,0.4), transparent 65%)' }}
+                animate={{ opacity: hover ? 0.6 : [0.2, 0.35, 0.2] }}
+                exit={{ opacity: 0, transition: { duration: 0.3 } }}
+                transition={hover ? { duration: 0.4 } : { duration: 3.4, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            )}
+            {phase === 'idle' && (
+              <motion.div
+                key="floor"
+                className="absolute left-1/2 -bottom-6 h-10 w-[140%] -translate-x-1/2 rounded-[50%] blur-xl"
+                style={{ background: 'radial-gradient(ellipse, rgba(74,158,221,0.55), transparent 70%)' }}
+                animate={{ opacity: hover ? 1 : 0.5 }}
+                exit={{ opacity: 0, transition: { duration: 0.3 } }}
+                transition={{ duration: 0.8 }}
+              />
+            )}
+          </AnimatePresence>
 
           {/* Encadrement */}
           <motion.div
             initial={{ opacity: 0, y: 40, scale: 0.92 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 1.1, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            animate={frame}
             className="relative aspect-[5/8] h-[62vh] max-h-[700px] min-h-[340px] rounded-t-[999px] p-[10px]"
             style={{
               background: 'linear-gradient(160deg,#27272a,#09090b 60%,#18181b)',
@@ -393,7 +416,7 @@ export default function DoorIntro({ onReveal, onDone }: Props) {
               </motion.div>
             </div>
           </motion.div>
-        </motion.div>
+        </div>
       </motion.div>
 
       {/* Invitation */}
